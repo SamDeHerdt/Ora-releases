@@ -1,0 +1,66 @@
+name: build
+
+# Builds Ora for Windows and Linux from a tag in the private source repo. Run by
+# scripts/release.sh there, which builds the Mac app itself, signs every file with the update
+# key (which never leaves Sam's Mac) and publishes the release here.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag in the source repo, like v0.2.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, os: windows-latest }
+          # The oldest Ubuntu with WebKitGTK 4.1: the build then runs on newer systems too.
+          - { name: linux, os: ubuntu-22.04 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: SamDeHerdt/ora
+          ref: ${{ inputs.ref }}
+          ssh-key: ${{ secrets.SOURCE_DEPLOY_KEY }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      # This log is public and the source is not: compiler messages quote code, so they stay out.
+      - name: Build
+        shell: bash
+        run: cargo build -p ora --release --locked > build.log 2>&1 || { echo "Build failed. The log is kept out of this public repo: run the same build from the source repo."; exit 1; }
+
+      - name: Package
+        shell: bash
+        run: |
+          V="${{ inputs.ref }}"; V="${V#v}"
+          mkdir out
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/release/ora.exe out/Ora.exe
+            (cd out && 7z a -tzip "../Ora-$V-windows.zip" Ora.exe > /dev/null)
+          else
+            cp target/release/ora out/ora
+            cp scripts/ci/ora.desktop out/
+            tar -czf "Ora-$V-linux.tar.gz" -C out ora ora.desktop
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ora-${{ matrix.name }}
+          path: Ora-*
+          if-no-files-found: error
+          retention-days: 3
