@@ -42,7 +42,8 @@ jobs:
       # This log is public and the source is not: compiler messages quote code, so they stay out.
       - name: Build
         shell: bash
-        run: cargo build -p ora --release --locked > build.log 2>&1 || { echo "Build failed. The log is kept out of this public repo: run the same build from the source repo."; exit 1; }
+        run: |
+          cargo build -p ora --release --locked > build.log 2>&1 || { echo "Build failed. The log stays out of this public repo; run the same build from the source repo."; exit 1; }
 
       - name: Package
         shell: bash
